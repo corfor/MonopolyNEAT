@@ -1,162 +1,133 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Collections.Generic;
 
-namespace NEAT
+namespace Monopoly.NeuroEvolution;
+
+public class VertexInfo
 {
-    public class VertexInfo
+    public readonly int Index;
+
+    public readonly VertexType Type;
+
+    public VertexInfo(VertexType t, int i)
     {
-        public enum EType
+        Type = t;
+        Index = i;
+    }
+}
+
+public class EdgeInfo
+{
+    public readonly int Destination;
+
+    //structural information
+    public readonly int Source;
+    public bool Enabled;
+
+    public int Innovation;
+
+    //network information
+    public float Weight;
+
+    public EdgeInfo(int s, int d, float w, bool e)
+    {
+        Source = s;
+        Destination = d;
+
+        Weight = w;
+        Enabled = e;
+    }
+}
+
+public class Genotype
+{
+    public readonly List<EdgeInfo> Edges = new();
+
+    public readonly List<VertexInfo> Vertices = new();
+    public float AdjustedFitness = 0.0f;
+
+    public int Bracket = 0;
+
+    public float Fitness = 0.0f;
+
+    public void AddVertex(VertexType type, int index)
+    {
+        var v = new VertexInfo(type, index);
+        Vertices.Add(v);
+
+        if (v.Type != VertexType.Hidden)
         {
-            INPUT = 0,
-            HIDDEN = 1,
-            OUTPUT = 2,
         }
 
-        public EType type;
-        public int index = 0;
-
-        public VertexInfo(EType t, int i)
+        if (v.Type == VertexType.Input)
         {
-            type = t;
-            index = i;
         }
     }
 
-    public class EdgeInfo
+    public void AddEdge(int source, int destination, float weight, bool enabled)
     {
-        //structual information
-        public int source = 0;
-        public int destination = 0;
-
-        //network information
-        public float weight = 0.0f;
-        public bool enabled = false;
-        public int innovation = 0;
-
-        public EdgeInfo(int s, int d, float w, bool e)
-        {
-            source = s;
-            destination = d;
-
-            weight = w;
-            enabled = e;
-        }
+        var e = new EdgeInfo(source, destination, weight, enabled);
+        Edges.Add(e);
     }
 
-    public class Genotype
+    public void AddEdge(int source, int destination, float weight, bool enabled, int innovation)
     {
-        public List<VertexInfo> vertices;
-        public List<EdgeInfo> edges;
-
-        public int inputs = 0;
-        public int externals = 0;
-
-        public int bracket = 0;
-
-        public float fitness = 0.0f;
-        public float adjustedFitness = 0.0f;
-            
-        public Genotype()
+        var e = new EdgeInfo(source, destination, weight, enabled)
         {
-            vertices = new List<VertexInfo>();
-            edges = new List<EdgeInfo>();
-        }
+            Innovation = innovation
+        };
+        Edges.Add(e);
+    }
 
-        public void AddVertex(VertexInfo.EType type, int index)
-        {
-            VertexInfo v = new VertexInfo(type, index);
-            vertices.Add(v);
+    public Genotype Clone()
+    {
+        var copy = new Genotype();
 
-            if (v.type != VertexInfo.EType.HIDDEN)
-            {
-                externals++;
-            }
+        int vertexCount = Vertices.Count;
 
-            if (v.type == VertexInfo.EType.INPUT)
-            {
-                inputs++;
-            }
-        }
+        for (var i = 0; i < vertexCount; i++)
+            copy.AddVertex(Vertices[i].Type, Vertices[i].Index);
 
-        public void AddEdge(int source, int destination, float weight, bool enabled)
-        {
-            EdgeInfo e = new EdgeInfo(source, destination, weight, enabled);
-            edges.Add(e);
-        }
+        int edgeCount = Edges.Count;
 
-        public void AddEdge(int source, int destination, float weight, bool enabled, int innovation)
-        {
-            EdgeInfo e = new EdgeInfo(source, destination, weight, enabled);
-            e.innovation = innovation;
-            edges.Add(e);
-        }
+        for (var i = 0; i < edgeCount; i++)
+            copy.AddEdge(Edges[i].Source, Edges[i].Destination, Edges[i].Weight, Edges[i].Enabled, Edges[i].Innovation);
 
-        public Genotype Clone()
-        {
-            Genotype copy = new Genotype();
+        return copy;
+    }
 
-            int vertexCount = vertices.Count;
+    public void SortTopology()
+    {
+        SortVertices();
+        SortEdges();
+    }
 
-            for (int i = 0; i < vertexCount; i++)
-            {
-                copy.AddVertex(vertices[i].type, vertices[i].index);
-            }
+    public void SortVertices()
+    {
+        Vertices.Sort(CompareVertexByOrder);
+    }
 
-            int edgeCount = edges.Count;
+    public void SortEdges()
+    {
+        Edges.Sort(CompareEdgeByInnovation);
+    }
 
-            for (int i = 0; i < edgeCount; i++)
-            {
-                copy.AddEdge(edges[i].source, edges[i].destination, edges[i].weight, edges[i].enabled, edges[i].innovation);
-            }
+    private static int CompareVertexByOrder(VertexInfo a, VertexInfo b)
+    {
+        if (a.Index > b.Index)
+            return 1;
+        if (a.Index == b.Index)
+            return 0;
 
-            return copy;
-        }
+        return -1;
+    }
 
-        public void SortTopology()
-        {
-            SortVertices();
-            SortEdges();
-        }
+    private static int CompareEdgeByInnovation(EdgeInfo a, EdgeInfo b)
+    {
+        if (a.Innovation > b.Innovation)
+            return 1;
+        if (a.Innovation == b.Innovation)
+            return 0;
 
-        public void SortVertices()
-        {
-            vertices.Sort(CompareVertexByOrder);
-        }
-
-        public void SortEdges()
-        {
-            edges.Sort(CompareEdgeByInnovation);
-        }
-
-        public int CompareVertexByOrder(VertexInfo a, VertexInfo b)
-        {
-            if (a.index > b.index)
-            {
-                return 1;
-            }
-            else if (a.index == b.index)
-            {
-                return 0;
-            }
-
-            return -1;
-        }
-
-        public int CompareEdgeByInnovation(EdgeInfo a, EdgeInfo b)
-        {
-            if (a.innovation > b.innovation)
-            {
-                return 1;
-            }
-            else if (a.innovation == b.innovation)
-            {
-                return 0;
-            }
-
-            return -1;
-        }
+        return -1;
     }
 }

@@ -1,163 +1,139 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿namespace Monopoly.NeuroEvolution;
 
-namespace NEAT
+public class NetworkFactory
 {
-    public class NetworkFactory
+    public static readonly NetworkFactory Instance = new();
+
+    private NetworkFactory()
     {
-        public static NetworkFactory instance = null;
+    }
 
-        public static void Initialise()
+    public static Genotype CreateBaseGenotype(int inputs, int outputs)
+    {
+        var network = new Genotype();
+
+        for (var i = 0; i < inputs; i++)
+            network.AddVertex(VertexType.Input, i);
+
+        for (var i = 0; i < outputs; i++)
+            network.AddVertex(VertexType.Output, i + inputs);
+
+        network.AddEdge(0, inputs, 0.0f, true, 0);
+
+        //int innovation = 0;
+        //
+        //for (int i = 0; i < inputs; i++)
+        //{
+        //    for (int j = 0; j < outputs; j++)
+        //    {
+        //        int input = i;
+        //        int output = j + inputs;
+        //
+        //        network.AddEdge(input, output, 0.0f, true, innovation);
+        //
+        //        innovation++;
+        //    }
+        //}
+
+        return network;
+    }
+
+    public static void RegisterBaseMarkings(int inputs, int outputs)
+    {
+        for (var i = 0; i < inputs; i++)
+        for (var j = 0; j < outputs; j++)
         {
-            if (instance == null)
-            {
-                instance = new NetworkFactory();
-            }
+            int output = j + inputs;
+
+            var info = new EdgeInfo(i, output, 0.0f, true);
+
+            Mutation.Instance.RegisterMarking(info);
+        }
+    }
+
+    public Genotype CreateBaseRecurrent()
+    {
+        var network = new Genotype();
+
+        var nodeNum = 0;
+
+        for (var i = 0; i < 1; i++)
+        {
+            network.AddVertex(VertexType.Input, nodeNum);
+            nodeNum++;
         }
 
-        public Genotype CreateBaseGenotype(int inputs, int outputs)
+        for (var i = 0; i < 1; i++)
         {
-            Genotype network = new Genotype();
-
-            for (int i = 0; i < inputs; i++)
-            {
-                network.AddVertex(VertexInfo.EType.INPUT, i);
-            }
-
-            for (int i = 0; i < outputs; i++)
-            {
-                network.AddVertex(VertexInfo.EType.OUTPUT, i + inputs);
-            }
-
-            network.AddEdge(0, inputs, 0.0f, true, 0);
-
-            //int innovation = 0;
-            //
-            //for (int i = 0; i < inputs; i++)
-            //{
-            //    for (int j = 0; j < outputs; j++)
-            //    {
-            //        int input = i;
-            //        int output = j + inputs;
-            //
-            //        network.AddEdge(input, output, 0.0f, true, innovation);
-            //
-            //        innovation++;
-            //    }
-            //}
-
-            return network;
+            network.AddVertex(VertexType.Output, nodeNum);
+            nodeNum++;
         }
 
-        public void RegisterBaseMarkings(int inputs, int outputs)
+        network.AddEdge(0, 1, 0.0f, true, 0);
+        network.AddEdge(1, 0, 0.0f, true, 1);
+
+        var physicals = new Phenotype();
+        physicals.InscribeGenotype(network);
+        physicals.ProcessGraph();
+
+        return network;
+    }
+
+    public Genotype CreateBuggyNetwork()
+    {
+        var network = new Genotype();
+
+        var nodeNum = 0;
+
+        for (var i = 0; i < 2; i++)
         {
-            for (int i = 0; i < inputs; i++)
-            {
-                for (int j = 0; j < outputs; j++)
-                {
-                    int input = i;
-                    int output = j + inputs;
-
-                    EdgeInfo info = new EdgeInfo(input, output, 0.0f, true);
-
-                    Mutation.instance.RegisterMarking(info);
-                }
-            }
+            network.AddVertex(VertexType.Input, nodeNum);
+            nodeNum++;
         }
 
-        public Genotype CreateBaseRecurrent()
+        for (var i = 0; i < 1; i++)
         {
-            Genotype network = new Genotype();
-
-            int nodeNum = 0;
-
-            for (int i = 0; i < 1; i++)
-            {
-                network.AddVertex(VertexInfo.EType.INPUT, nodeNum);
-                nodeNum++;
-            }
-
-            for (int i = 0; i < 1; i++)
-            {
-                network.AddVertex(VertexInfo.EType.OUTPUT, nodeNum);
-                nodeNum++;
-            }
-
-            network.AddEdge(0, 1, 0.0f, true, 0);
-            network.AddEdge(1, 0, 0.0f, true, 1);
-
-            Phenotype physicals = new Phenotype();
-            physicals.InscribeGenotype(network);
-            physicals.ProcessGraph();
-
-            return network;
+            network.AddVertex(VertexType.Output, nodeNum);
+            nodeNum++;
         }
 
-        public Genotype CreateBuggyNetwork()
+        for (var i = 0; i < 2; i++)
         {
-            Genotype network = new Genotype();
-
-            int nodeNum = 0;
-
-            for (int i = 0; i < 2; i++)
-            {
-                network.AddVertex(VertexInfo.EType.INPUT, nodeNum);
-                nodeNum++;
-            }
-
-            for (int i = 0; i < 1; i++)
-            {
-                network.AddVertex(VertexInfo.EType.OUTPUT, nodeNum);
-                nodeNum++;
-            }
-
-            for (int i = 0; i < 2; i++)
-            {
-                network.AddVertex(VertexInfo.EType.HIDDEN, nodeNum);
-                nodeNum++;
-            }
-
-            network.AddEdge(0, 2, 0.0f, true, 0);
-            network.AddEdge(1, 2, 0.0f, true, 1);
-            network.AddEdge(1, 3, 0.0f, true, 2);
-            network.AddEdge(3, 2, 0.0f, true, 3);
-
-            Phenotype physicals = new Phenotype();
-            physicals.InscribeGenotype(network);
-            physicals.ProcessGraph();
-
-            return network;
+            network.AddVertex(VertexType.Hidden, nodeNum);
+            nodeNum++;
         }
 
-        public Phenotype CreateBasePhenotype(int inputs, int outputs)
+        network.AddEdge(0, 2, 0.0f, true, 0);
+        network.AddEdge(1, 2, 0.0f, true, 1);
+        network.AddEdge(1, 3, 0.0f, true, 2);
+        network.AddEdge(3, 2, 0.0f, true, 3);
+
+        var physicals = new Phenotype();
+        physicals.InscribeGenotype(network);
+        physicals.ProcessGraph();
+
+        return network;
+    }
+
+    public Phenotype CreateBasePhenotype(int inputs, int outputs)
+    {
+        var network = new Phenotype();
+
+        for (var i = 0; i < inputs; i++)
+            network.AddVertex(VertexType.Input, i);
+
+        for (var i = 0; i < outputs; i++)
+            network.AddVertex(VertexType.Output, i + inputs);
+
+        for (var i = 0; i < inputs; i++)
+        for (var j = 0; j < outputs; j++)
         {
-            Phenotype network = new Phenotype();
+            int input = i;
+            int output = j + inputs;
 
-            for (int i = 0; i < inputs; i++)
-            {
-                network.AddVertex(Vertex.EType.INPUT, i);
-            }
-
-            for (int i = 0; i < outputs; i++)
-            {
-                network.AddVertex(Vertex.EType.OUTPUT, i + inputs);
-            }
-
-            for (int i = 0; i < inputs; i++)
-            {
-                for (int j = 0; j < outputs; j++)
-                {
-                    int input = i;
-                    int output = j + inputs;
-
-                    network.AddEdge(input, output, 0.0f, true);
-                }
-            }
-
-            return network;
+            network.AddEdge(input, output, 0.0f, true);
         }
+
+        return network;
     }
 }

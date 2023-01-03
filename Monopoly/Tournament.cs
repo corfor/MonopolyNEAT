@@ -1,262 +1,218 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
+using Monopoly.Game;
+using Monopoly.NeuroEvolution;
 
-namespace Monopoly
+namespace Monopoly;
+
+public class Tournament
 {
-    public class Tournament
+    private const int TournamentSize = 256;
+    private const int RoundSize = 2000; //2000
+
+    private readonly int _workers = Environment.ProcessorCount; //20
+    private const int BatchSize = 20; //20
+
+    private Genotype _champion;
+
+    private List<Phenotype> _contestants = new();
+    private List<Genotype> _genetics = new();
+    public float ChampionScore;
+
+    public static void Initialise()
     {
-        public static int TOURNAMENT_SIZE = 256;
-        public static int ROUND_SIZE = 2000; //2000
-        
-        public static int WORKERS = 20; //20
-        public static int BATCH_SIZE = 20; //20
+        const int inputs = 126;
+        const int outputs = 9;
 
-        public NEAT.Genotype champion = null;
-        public float championScore = 0.0f;
+        Population.Instance.GenerateBasePopulation(TournamentSize, inputs, outputs);
+    }
 
-        public List<NEAT.Phenotype> contestants;
-        public List<NEAT.Genotype> contestants_g;
+    public void ExecuteTournament()
+    {
+        Console.WriteLine("TOURNAMENT #" + Population.Instance.Generation);
 
-        public Tournament()
+        _contestants.Clear();
+        _genetics.Clear();
+
+        for (var i = 0; i < TournamentSize; i++)
         {
-            contestants = new List<NEAT.Phenotype>();
-            contestants_g = new List<NEAT.Genotype>();
+            Population.Instance.Genetics[i].Bracket = 0;
+            Population.Instance.Phenotypes[i].Score = 0.0f;
+
+            _contestants.Add(Population.Instance.Phenotypes[i]);
+            _genetics.Add(Population.Instance.Genetics[i]);
         }
 
-        public void Initialise()
-        {
-            int INPUTS = 126;
-            int OUTPUTS = 9;
+        while (_contestants.Count > 1)
+            ExecuteTournamentRound();
 
-            NEAT.Population.instance.GenerateBasePopulation(TOURNAMENT_SIZE, INPUTS, OUTPUTS);
+        for (var i = 0; i < TournamentSize; i++)
+        {
+            var top = 0.0f;
+
+            if (_champion != null)
+                top = _champion.Bracket;
+
+            float diff = Population.Instance.Genetics[i].Bracket - top;
+            Population.Instance.Genetics[i].Fitness = ChampionScore + diff * 5;
         }
 
-        public void ExecuteTournament()
+        _champion = _genetics[0];
+        ChampionScore = _genetics[0].Fitness;
+    }
+
+    private void ExecuteTournamentRound()
+    {
+        Console.WriteLine("\tROUND SIZE " + _contestants.Count);
+
+        var cs = new List<Phenotype>();
+        var cs_g = new List<Genotype>();
+
+        RandomNumberGenerator.Instance.DoubleShuffle(_contestants, _genetics, ref cs, ref cs_g);
+
+        for (var i = 0; i < TournamentSize; i++)
+            Population.Instance.Phenotypes[i].Score = 0.0f;
+
+        _contestants = cs;
+        _genetics = cs_g;
+
+        for (var i = 0; i < _contestants.Count; i += 4)
         {
-            Console.WriteLine("TOURNAMENT #" + NEAT.Population.instance.GENERATION);
+            var played = 0;
 
-            contestants.Clear();
-            contestants_g.Clear();
+            Console.WriteLine("\t\tBRACKET (" + i / 4 + ")");
 
-            for (int i = 0; i < TOURNAMENT_SIZE; i++)
+            while (played < RoundSize)
             {
-                NEAT.Population.instance.genetics[i].bracket = 0;
-                NEAT.Population.instance.population[i].score = 0.0f;
-                
-                contestants.Add(NEAT.Population.instance.population[i]);
-                contestants_g.Add(NEAT.Population.instance.genetics[i]);
-            }
+                Console.WriteLine($"\t\t\tInitialised {_workers} Workers");
 
-            while (contestants.Count > 1)
-            {
-                ExecuteTournamentRound();
-            }
+                var workers = new Thread[_workers];
 
-            for (int i = 0; i < TOURNAMENT_SIZE; i++)
-            {
-                float top = 0.0f;
-
-                if (champion != null)
+                for (var t = 0; t < _workers; t++)
                 {
-                    top = champion.bracket;
+                    int i1 = i;
+                    workers[t] = new Thread(() => PlayGameThread(this, i1));
+                    workers[t].Start();
                 }
 
-                float diff = NEAT.Population.instance.genetics[i].bracket - top;
-                NEAT.Population.instance.genetics[i].fitness = championScore + diff * 5;
+                for (var t = 0; t < _workers; t++)
+                    workers[t].Join();
+
+                played += _workers * BatchSize;
+
+                for (var c = 0; c < Constants.BoardLength; c++)
+                    Console.WriteLine($"\t\t\t\tindex: {c}, {Analytics.Instance.Ratio[c]:0.000}");
             }
 
-            champion = contestants_g[0];
-            championScore = contestants_g[0].fitness;
+            var mi = 0;
+            float ms = _contestants[i].Score;
+
+            for (var j = 1; j < 4; j++)
+                if (ms < _contestants[i + j].Score)
+                {
+                    mi = j;
+                    ms = _contestants[i + j].Score;
+                }
+
+            for (var j = 0; j < 4; j++)
+            {
+                if (j == mi)
+                {
+                    _genetics[i + j].Bracket++;
+                    continue;
+                }
+
+                _contestants[i + j] = null;
+            }
         }
 
-        public void ExecuteTournamentRound()
+        for (var i = 0; i < _contestants.Count; i++)
+            if (_contestants[i] == null)
+            {
+                _contestants.RemoveAt(i);
+                _genetics.RemoveAt(i);
+                i--;
+            }
+    }
+
+    private static void PlayGameThread(Tournament instance, int i)
+    {
+        for (var game = 0; game < BatchSize; game++)
         {
+            var adapter = new NetworkAdapter();
+            var board = new Board(adapter);
 
-            Console.WriteLine("ROUND SIZE " + contestants.Count.ToString());
+            board.players[0].Network = instance._contestants[i];
+            board.players[1].Network = instance._contestants[i + 1];
+            board.players[2].Network = instance._contestants[i + 2];
+            board.players[3].Network = instance._contestants[i + 3];
 
-            List<NEAT.Phenotype> cs = new List<NEAT.Phenotype>();
-            List<NEAT.Genotype> cs_g = new List<NEAT.Genotype>();
+            board.players[0].Adapter = adapter;
+            board.players[1].Adapter = adapter;
+            board.players[2].Adapter = adapter;
+            board.players[3].Adapter = adapter;
 
-            RNG.instance.DoubleShuffle(contestants, contestants_g, ref cs, ref cs_g);
+            board.players = RandomNumberGenerator.Instance.Shuffle(board.players);
 
-            for (int i = 0; i < TOURNAMENT_SIZE; i++)
+            Board.OutcomeType outcomeType = Board.OutcomeType.Ongoing;
+
+            while (outcomeType == Board.OutcomeType.Ongoing)
+                outcomeType = board.Step();
+
+            switch (outcomeType)
             {
-                NEAT.Population.instance.population[i].score = 0.0f;
-            }
-
-            contestants = cs;
-            contestants_g = cs_g;
-
-            for (int i = 0; i < contestants.Count; i += 4)
-            {
-                int played = 0;
-
-                Console.WriteLine("BRACKET (" + ( i / 4 ) + ")");
-
-                while (played < ROUND_SIZE)
+                case Board.OutcomeType.Win1:
                 {
-                    Console.WriteLine("Initialised Workers");
-
-                    Thread[] workers = new Thread[WORKERS];
-
-                    for (int t = 0; t < WORKERS; t++)
-                    {
-                        workers[t] = new Thread(() => PlayGameThread(this, i));
-                        workers[t].Start();
-                    }
-
-                    for (int t = 0; t < WORKERS; t++)
-                    {
-                        workers[t].Join();
-                    }
-
-                    played += WORKERS * BATCH_SIZE;
-
-                    for (int c = 0; c < 40; c++)
-                    {
-                        Console.WriteLine("index: " + c.ToString() + ", " + String.Format("{0:0.000}", Monopoly.Analytics.instance.ratio[c]));
-                    }
+                    MarkWinner(board, 0);
+                    break;
                 }
-
-                int mi = 0;
-                float ms = contestants[i].score;
-
-                for (int j = 1; j < 4; j++)
+                case Board.OutcomeType.Win2:
                 {
-                    if (ms < contestants[i + j].score)
-                    {
-                        mi = j;
-                        ms = contestants[i + j].score;
-                    }
+                    MarkWinner(board, 1);
+                    break;
                 }
-
-                for (int j = 0; j < 4; j++)
+                case Board.OutcomeType.Win3:
                 {
-                    if (j == mi)
-                    {
-                        contestants_g[i + j].bracket++;
-                        continue;
-                    }
-
-                    contestants[i + j] = null;
+                    MarkWinner(board, 2);
+                    break;
                 }
-            }
-
-            for (int i = 0; i < contestants.Count; i++)
-            {
-                if (contestants[i] == null)
+                case Board.OutcomeType.Win4:
                 {
-                    contestants.RemoveAt(i);
-                    contestants_g.RemoveAt(i);
-                    i--;
+                    MarkWinner(board, 3);
+                    break;
                 }
-            }
-
-            return;
-        }
-
-        public static void PlayGameThread(Tournament instance, int i)
-        {
-            for (int game = 0; game < BATCH_SIZE; game++)
-            {
-                NetworkAdapter adapter = new NetworkAdapter();
-                MONOPOLY.Board board = new MONOPOLY.Board(adapter);
-
-                board.players[0].network = instance.contestants[i];
-                board.players[1].network = instance.contestants[i + 1];
-                board.players[2].network = instance.contestants[i + 2];
-                board.players[3].network = instance.contestants[i + 3];
-
-                board.players[0].adapter = adapter;
-                board.players[1].adapter = adapter;
-                board.players[2].adapter = adapter;
-                board.players[3].adapter = adapter;
-
-                board.players = RNG.instance.Shuffle(board.players);
-
-                MONOPOLY.Board.EOutcome outcome = MONOPOLY.Board.EOutcome.ONGOING;
-
-                while (outcome == MONOPOLY.Board.EOutcome.ONGOING)
-                {
-                    outcome = board.Step();
-                }
-
-                if (outcome == MONOPOLY.Board.EOutcome.WIN1)
-                {
-                    lock (board.players[0].network)
-                    {
-                        board.players[0].network.score += 1.0f;
-                    }
-
-                    for (int b = 0; b < board.players[0].items.Count; b++)
-                    {
-                        lock (Monopoly.Analytics.instance.wins)
-                        {
-                            Monopoly.Analytics.instance.MarkWin(board.players[0].items[b]);
-                        }
-                    }
-                   
-                }
-                else if (outcome == MONOPOLY.Board.EOutcome.WIN2)
-                {
-                    lock (board.players[1].network)
-                    {
-                        board.players[1].network.score += 1.0f;
-                    }
-
-                    for (int b = 0; b < board.players[1].items.Count; b++)
-                    {
-                        lock (Monopoly.Analytics.instance.wins)
-                        {
-                            Monopoly.Analytics.instance.MarkWin(board.players[1].items[b]);
-                        }
-                    }
-                }
-                else if (outcome == MONOPOLY.Board.EOutcome.WIN3)
-                {
-                    lock (board.players[2].network)
-                    {
-                        board.players[2].network.score += 1.0f;
-                    }
-
-                    for (int b = 0; b < board.players[2].items.Count; b++)
-                    {
-                        lock (Monopoly.Analytics.instance.wins)
-                        {
-                            Monopoly.Analytics.instance.MarkWin(board.players[2].items[b]);
-                        }
-                    }
-                }
-                else if (outcome == MONOPOLY.Board.EOutcome.WIN4)
-                {
-                    lock (board.players[3].network)
-                    {
-                        board.players[3].network.score += 1.0f;
-                    }
-
-                    for (int b = 0; b < board.players[3].items.Count; b++)
-                    {
-                        lock (Monopoly.Analytics.instance.wins)
-                        {
-                            Monopoly.Analytics.instance.MarkWin(board.players[3].items[b]);
-                        }
-                    }
-                }
-                else if (outcome == MONOPOLY.Board.EOutcome.DRAW)
+                case Board.OutcomeType.Draw:
                 {
                     lock (board.players)
                     {
-                        board.players[0].network.score += 0.25f;
-                        board.players[1].network.score += 0.25f;
-                        board.players[2].network.score += 0.25f;
-                        board.players[3].network.score += 0.25f;
+                        board.players[0].Network.Score += 0.25f;
+                        board.players[1].Network.Score += 0.25f;
+                        board.players[2].Network.Score += 0.25f;
+                        board.players[3].Network.Score += 0.25f;
                     }
+
+                    break;
                 }
+                case Board.OutcomeType.Ongoing:
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException();
             }
         }
+    }
+
+    private static void MarkWinner(Board board, int winner)
+    {
+        lock (board.players[winner].Network)
+        {
+            board.players[winner].Network.Score += 1.0f;
+        }
+
+        foreach (int t in board.players[winner].Items)
+            lock (Analytics.Instance.Wins)
+            {
+                Analytics.Instance.MarkWin(t);
+            }
     }
 }

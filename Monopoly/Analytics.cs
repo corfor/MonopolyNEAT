@@ -1,76 +1,63 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using Monopoly.Game;
+using Monopoly.NeuroEvolution;
 
-namespace Monopoly
+namespace Monopoly;
+
+public class Analytics
 {
-    public class Analytics
+    public static readonly Analytics Instance = new();
+    private readonly float[] _average;
+
+    private readonly int[] _bids;
+    private readonly int[] _money;
+    private readonly float[] _price;
+
+    private readonly int[] _trades;
+    public readonly float[] Ratio;
+
+    public readonly int[] Wins;
+    private int _max;
+
+    private Analytics()
     {
-        public static Analytics instance = null;
+        _bids = new int[Constants.BoardLength];
+        _money = new int[Constants.BoardLength];
+        _average = new float[Constants.BoardLength];
+        _price = new float[Constants.BoardLength];
 
-        public int[] bids;
-        public int[] money;
-        public float[] average;
-        public float[] price;
+        _trades = new int[Constants.BoardLength];
 
-        public int[] trades;
-        public int[] exchanges;
+        Wins = new int[Constants.BoardLength];
+        Ratio = new float[Constants.BoardLength];
+    }
 
-        public int[] wins;
-        public int max = 0;
-        public int min = 0;
-        public float[] ratio;
+    public void MakeBid(int index, int bid)
+    {
+        _bids[index]++;
+        _money[index] += bid;
+        // ReSharper disable once PossibleLossOfFraction
+        _average[index] = _money[index] / _bids[index];
+        _price[index] = _average[index] / Board.Costs[index];
+    }
 
-        public Analytics()
-        {
-            bids = new int[40];
-            money = new int[40];
-            average = new float[40];
-            price = new float[40];
+    public void MadeTrade(int index)
+    {
+        _trades[index]++;
+    }
 
-            trades = new int[40];
-            exchanges = new int[40];
+    public void MarkWin(int index)
+    {
+        Wins[index]++;
 
-            wins = new int[40];
-            ratio = new float[40];
-        }
+        if (_max < Wins[index])
+            _max = Wins[index];
 
-        public void MakeBid(int index, int bid)
-        {
-            bids[index]++;
-            money[index] += bid;
-            average[index] = money[index] / bids[index];
-            price[index] = average[index] / MONOPOLY.Board.COSTS[index];
-        }
+        int tempMin = int.MaxValue;
 
-        public void MadeTrade(int index)
-        {
-            trades[index]++;
-        }
+        for (var i = 0; i < Constants.BoardLength; i++)
+            if (Wins[i] != 0 && Wins[i] < tempMin)
+                tempMin = Wins[i];
 
-        public void MarkWin(int index)
-        {
-            wins[index]++;
-
-            if (max < wins[index])
-            {
-                max = wins[index];
-            }
-
-            int tempMin = int.MaxValue;
-
-            for (int i = 0; i < 40; i++)
-            {
-                if (wins[i] != 0 && wins[i] < tempMin)
-                {
-                    tempMin = wins[i];
-                }
-            }
-
-            ratio[index] = (float)(wins[index] - tempMin) / (float)(max - tempMin);
-        }
-
+        Ratio[index] = (Wins[index] - tempMin) / (float) (_max - tempMin);
     }
 }

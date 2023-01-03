@@ -1,359 +1,295 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
-namespace NEAT
+namespace Monopoly.NeuroEvolution;
+
+public class Species
 {
-    public class Species
+    public readonly List<Genotype> Members = new();
+
+    public Species(Genotype member = default)
     {
-        public List<Genotype> members;
+        if (member != default)
+            Members.Add(member);
+    }
 
-        public float topFitness = 0.0f;
-        public int staleness = 0;
+    public int Staleness { get; set; }
+    public float TopFitness { get; set; }
+    public float FitnessSum { get; private set; }
 
-        public float fitnessSum = 0.0f;
+    public Genotype Breed()
+    {
+        var roll = (float) RandomNumberGenerator.Instance.Random.NextDouble();
 
-        public Species()
+        if (roll < Crossover.CrossoverChance && Members.Count > 1)
         {
-            members = new List<Genotype>();
+            int s1 = RandomNumberGenerator.Instance.Random.Next(0, Members.Count);
+            int s2 = RandomNumberGenerator.Instance.Random.Next(0, Members.Count - 1);
+
+            if (s2 >= s1)
+                s2++;
+
+            if (s1 > s2)
+                (s1, s2) = (s2, s1);
+
+            Genotype child = Crossover.ProduceOffspring(Members[s1], Members[s2]);
+            Mutation.Instance.MutateAll(child);
+
+            return child;
         }
-
-        public Genotype Breed()
+        else
         {
-            float roll = (float)RNG.instance.gen.NextDouble();
+            int selection = RandomNumberGenerator.Instance.Random.Next(0, Members.Count);
 
-            if (roll < Crossover.instance.CROSSOVER_CHANCE && members.Count > 1)
-            {
-                int s1 = RNG.instance.gen.Next(0, members.Count);
-                int s2 = RNG.instance.gen.Next(0, members.Count - 1);
+            Genotype child = Members[selection].Clone();
+            Mutation.Instance.MutateAll(child);
 
-                if (s2 >= s1)
-                {
-                    s2++;
-                }
-
-                if (s1 > s2)
-                {
-                    int temp = s1;
-                    s1 = s2;
-                    s2 = temp;
-                }
-
-                Genotype child = Crossover.instance.ProduceOffspring(members[s1], members[s2]);
-                Mutation.instance.MutateAll(child);
-
-                int selection = RNG.instance.gen.Next(0, members.Count);
-
-                return child;
-            }
-            else
-            {
-                int selection = RNG.instance.gen.Next(0, members.Count);
-                
-                Genotype child = members[selection].Clone();
-                Mutation.instance.MutateAll(child);
-
-                return child;
-            }
-        }
-
-        public void SortMembers()
-        {
-            members.Sort(SortGenotypeByFitness);
-        }
-
-        public int SortGenotypeByFitness(Genotype a, Genotype b)
-        {
-            if (a.adjustedFitness > b.adjustedFitness)
-            {
-                return -1;
-            }
-            else if (a.adjustedFitness == b.adjustedFitness)
-            {
-                return 0;
-            }
-
-            return 1;
-        }
-
-        public void CullToPortion(float portion)
-        {
-            if (members.Count <= 1)
-            {
-                return;
-            }
-
-            int remaining = (int)Math.Ceiling(members.Count * portion);
-            members.RemoveRange(remaining, members.Count - remaining);
-        }
-
-        public void CullToOne()
-        {
-            if (members.Count <= 1)
-            {
-                return;
-            }
-
-            members.RemoveRange(1, members.Count - 1);
-        }
-
-        public void CalculateAdjustedFitnessSum()
-        {
-            float sum = 0.0f;
-            int membersCount = members.Count;
-
-            for (int i = 0; i < membersCount; i++)
-            {
-                sum += members[i].adjustedFitness;
-            }
-
-            fitnessSum = sum;
+            return child;
         }
     }
 
-    public class Population
+    public void SortMembers()
     {
-        public static Population instance = null;
+        Members.Sort(SortGenotypeByFitness);
+    }
 
-        public int GENERATION = 0;
+    private static int SortGenotypeByFitness(Genotype a, Genotype b)
+    {
+        if (a.AdjustedFitness > b.AdjustedFitness)
+            return -1;
+        return Math.Abs(a.AdjustedFitness - b.AdjustedFitness) < Constants.Tolerance ? 0 : 1;
+    }
 
-        public int POPULATION_SIZE = 256;
-        public int INPUTS = 126;
-        public int OUTPUTS = 7;
-        public int MAX_STALENESS = 15;
+    public void CullToPortion(float portion)
+    {
+        if (Members.Count <= 1)
+            return;
 
-        public float PORTION = 0.2f;
+        var remaining = (int) Math.Ceiling(Members.Count * portion);
+        Members.RemoveRange(remaining, Members.Count - remaining);
+    }
 
-        public List<Species> species;
-        public List<Genotype> genetics;
-        public List<Phenotype> population;
+    public void CullToOne()
+    {
+        if (Members.Count <= 1)
+            return;
 
-        public static void Initialise()
+        Members.RemoveRange(1, Members.Count - 1);
+    }
+
+    public void CalculateAdjustedFitnessSum()
+    {
+        var sum = 0.0f;
+        int membersCount = Members.Count;
+
+        for (var i = 0; i < membersCount; i++)
+            sum += Members[i].AdjustedFitness;
+
+        FitnessSum = sum;
+    }
+}
+
+public class Population
+{
+    private const int MaxStaleness = 15;
+
+    private const float Portion = 0.2f;
+    public static readonly Population Instance = new();
+    public readonly List<Genotype> Genetics = new();
+    public readonly List<Phenotype> Phenotypes = new();
+
+    public readonly List<Species> Species = new();
+
+    private int _populationSize = 256;
+
+    public int Generation;
+
+    private Population()
+    {
+    }
+
+    public void GenerateBasePopulation(int size, int inputs, int outputs)
+    {
+        _populationSize = size;
+
+        for (var i = 0; i < _populationSize; i++)
         {
-            if (instance == null)
+            Genotype genotype = NetworkFactory.CreateBaseGenotype(inputs, outputs);
+            Genetics.Add(genotype);
+
+            AddToSpecies(genotype);
+        }
+
+        NetworkFactory.RegisterBaseMarkings(inputs, outputs);
+
+        for (var i = 0; i < _populationSize; i++)
+            Mutation.Instance.MutateAll(Genetics[i]);
+
+        InscribePopulation();
+    }
+
+    public void NewGeneration()
+    {
+        CalculateAdjustedFitness();
+
+        for (var i = 0; i < Species.Count; i++)
+        {
+            Species[i].SortMembers();
+            Species[i].CullToPortion(Portion);
+
+            if (Species[i].Members.Count <= 1)
             {
-                instance = new Population();
+                Species.RemoveAt(i);
+                i--;
             }
         }
 
-        public Population()
+        UpdateStaleness();
+
+        var fitnessSum = 0.0f;
+
+        foreach (Species t in Species)
         {
-            species = new List<Species>();
-            genetics = new List<Genotype>();
-            population = new List<Phenotype>();
+            t.CalculateAdjustedFitnessSum();
+            fitnessSum += t.FitnessSum;
         }
 
-        public void GenerateBasePopulation(int size, int inputs, int outputs)
+        var children = new List<Genotype>();
+
+        foreach (Species t in Species)
         {
-            POPULATION_SIZE = size;
-            INPUTS = inputs;
-            OUTPUTS = outputs;
+            int build = (int) (_populationSize * (t.FitnessSum / fitnessSum)) - 1;
 
-            for (int i = 0; i < POPULATION_SIZE; i++)
+            for (var j = 0; j < build; j++)
             {
-                Genotype genotype = NetworkFactory.instance.CreateBaseGenotype(inputs, outputs);
-                genetics.Add(genotype);
-
-                AddToSpecies(genotype);
-            }
-
-            NetworkFactory.instance.RegisterBaseMarkings(inputs, outputs);
-
-            for (int i = 0; i < POPULATION_SIZE; i++)
-            {
-                Mutation.instance.MutateAll(genetics[i]);
-            }
-
-            InscribePopulation();
-        }
-
-        public void NewGeneration()
-        {
-            CalculateAdjustedFitness();
-
-            for (int i = 0; i < species.Count; i++)
-            {
-                species[i].SortMembers();
-                species[i].CullToPortion(PORTION);
-
-                if (species[i].members.Count <= 1)
-                {
-                    species.RemoveAt(i);
-                    i--;
-                }
-            }
-
-            UpdateStaleness();
-
-            float fitnessSum = 0.0f;
-
-            for (int i = 0; i < species.Count; i++)
-            {
-                species[i].CalculateAdjustedFitnessSum();
-                fitnessSum += species[i].fitnessSum;
-            }
-
-            List<Genotype> children = new List<Genotype>();
-
-            for (int i = 0; i < species.Count; i++)
-            {
-                int build = (int)(POPULATION_SIZE * (species[i].fitnessSum / fitnessSum)) - 1;
-
-                for (int j = 0; j < build; j++)
-                {
-                    Genotype child = species[i].Breed();
-                    children.Add(child);
-                }
-
-            }
-
-            while (POPULATION_SIZE > species.Count + children.Count)
-            {
-                Genotype child = species[RNG.instance.gen.Next(0,species.Count)].Breed();
+                Genotype child = t.Breed();
                 children.Add(child);
             }
-
-            for (int i = 0; i < species.Count; i++)
-            {
-                species[i].CullToOne();
-            }
-
-            int childrenCount = children.Count;
-
-            for (int i = 0; i < childrenCount; i++)
-            {
-                AddToSpecies(children[i]);
-            }
-
-            genetics.Clear();
-
-            for (int i = 0; i < species.Count; i++)
-            {
-                for (int j = 0; j < species[i].members.Count; j++)
-                {
-                    genetics.Add(species[i].members[j]);
-                }
-            }
-
-            InscribePopulation();
-
-            GENERATION++;
         }
 
-        public void CalculateAdjustedFitness()
+        while (_populationSize > Species.Count + children.Count)
         {
-            int speciesCount = species.Count;
-
-            for (int i = 0; i < speciesCount; i++)
-            {
-                int membersCount = species[i].members.Count;
-
-                for (int j = 0; j < membersCount; j++)
-                {
-                    species[i].members[j].adjustedFitness = species[i].members[j].fitness / membersCount;
-                }
-            }
+            Genotype child = Species[RandomNumberGenerator.Instance.Random.Next(0, Species.Count)].Breed();
+            children.Add(child);
         }
 
-        public void UpdateStaleness()
+        foreach (Species t in Species)
+            t.CullToOne();
+
+        int childrenCount = children.Count;
+
+        for (var i = 0; i < childrenCount; i++)
+            AddToSpecies(children[i]);
+
+        Genetics.Clear();
+
+        foreach (Genotype t in Species.SelectMany(t1 => t1.Members))
+            Genetics.Add(t);
+
+        InscribePopulation();
+
+        Generation++;
+    }
+
+    private void CalculateAdjustedFitness()
+    {
+        int speciesCount = Species.Count;
+
+        for (var i = 0; i < speciesCount; i++)
         {
-            int speciesCount = species.Count;
+            int membersCount = Species[i].Members.Count;
 
-            for (int i = 0; i < speciesCount; i++)
-            {
-                if (speciesCount == 1)
-                {
-                    return;
-                }
-
-                float top = species[i].members[0].fitness;
-
-                if (species[i].topFitness < top)
-                {
-                    species[i].topFitness = top;
-                    species[i].staleness = 0;
-                }
-                else
-                {
-                    species[i].staleness++;
-                }
-
-                if (species[i].staleness >= MAX_STALENESS)
-                {
-                    species.RemoveAt(i);
-                    i--;
-                    speciesCount--;
-                }
-            }
+            for (var j = 0; j < membersCount; j++)
+                Species[i].Members[j].AdjustedFitness = Species[i].Members[j].Fitness / membersCount;
         }
+    }
 
-        public void InscribePopulation()
+    private void UpdateStaleness()
+    {
+        int speciesCount = Species.Count;
+
+        for (var i = 0; i < speciesCount; i++)
         {
-            population.Clear();
+            if (speciesCount == 1)
+                return;
 
-            for (int i = 0; i < POPULATION_SIZE; i++)
+            float top = Species[i].Members[0].Fitness;
+
+            if (Species[i].TopFitness < top)
             {
-                genetics[i].fitness = 0.0f;
-                genetics[i].adjustedFitness = 0.0f;
-
-                Phenotype physical = new Phenotype();
-                physical.InscribeGenotype(genetics[i]);
-                physical.ProcessGraph();
-
-                population.Add(physical);
-            }
-        }
-
-        public void AddToSpecies(Genotype genotype)
-        {
-            if (species.Count == 0)
-            {
-                Species new_species = new Species();
-                new_species.members.Add(genotype);
-
-                species.Add(new_species);
+                Species[i].TopFitness = top;
+                Species[i].Staleness = 0;
             }
             else
             {
-                int speciesCount = species.Count;
+                Species[i].Staleness++;
+            }
 
-                bool found = false;
-
-                for (int i = 0; i < speciesCount; i++)
-                {
-                    float distance = Crossover.instance.SpeciationDistance(species[i].members[0], genotype);
-
-                    if (distance < Crossover.instance.DISTANCE)
-                    {
-                        species[i].members.Add(genotype);
-                        found = true;
-                        break;
-                    }
-                }
-
-                if (!found)
-                {
-                    Species new_species = new Species();
-                    new_species.members.Add(genotype);
-
-                    species.Add(new_species);
-                }
+            if (Species[i].Staleness >= MaxStaleness)
+            {
+                Species.RemoveAt(i);
+                i--;
+                speciesCount--;
             }
         }
-        public int SortGenotypeByFitness(Genotype a, Genotype b)
+    }
+
+    public void InscribePopulation()
+    {
+        Phenotypes.Clear();
+
+        for (var i = 0; i < _populationSize; i++)
         {
-            if (a.fitness > b.fitness)
+            Genetics[i].Fitness = 0.0f;
+            Genetics[i].AdjustedFitness = 0.0f;
+
+            var physical = new Phenotype();
+            physical.InscribeGenotype(Genetics[i]);
+            physical.ProcessGraph();
+
+            Phenotypes.Add(physical);
+        }
+    }
+
+    private void AddToSpecies(Genotype genotype)
+    {
+        if (Species.Count == 0)
+        {
+            var newSpecies = new Species(genotype);
+
+            Species.Add(newSpecies);
+        }
+        else
+        {
+            int speciesCount = Species.Count;
+
+            var found = false;
+
+            for (var i = 0; i < speciesCount; i++)
             {
-                return -1;
-            }
-            else if (a.fitness == b.fitness)
-            {
-                return 0;
+                float distance = Crossover.SpeciationDistance(Species[i].Members[0], genotype);
+
+                if (distance >= Crossover.Distance)
+                    continue;
+                Species[i].Members.Add(genotype);
+                found = true;
+                break;
             }
 
-            return 1;
+            if (found)
+                return;
+
+            var newSpecies = new Species(genotype);
+
+            Species.Add(newSpecies);
         }
+    }
+
+    public static int SortGenotypeByFitness(Genotype a, Genotype b)
+    {
+        if (a.Fitness > b.Fitness)
+            return -1;
+        return Math.Abs(a.Fitness - b.Fitness) < Constants.Tolerance ? 0 : 1;
     }
 }

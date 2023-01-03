@@ -1,213 +1,174 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
-namespace NEAT
+namespace Monopoly.NeuroEvolution;
+
+public class Vertex
 {
-    public class Vertex
+    //structural information
+    public readonly List<Edge> Incoming = new();
+
+    public readonly VertexType Type;
+
+    //output extraction
+    public float Value;
+
+    public Vertex(VertexType t)
     {
-        public enum EType
+        Type = t;
+    }
+}
+
+public class Edge
+{
+    public readonly int Destination;
+    public readonly bool Enabled;
+
+    //propagation information
+    public readonly int Source;
+
+    //network information
+    public readonly float Weight;
+
+    //structural information
+    public EdgeType Type = EdgeType.Forward;
+
+    public Edge(int s, int d, float w, bool e)
+    {
+        Source = s;
+        Destination = d;
+
+        Weight = w;
+        Enabled = e;
+    }
+}
+
+public class Phenotype
+{
+    // ReSharper disable once CollectionNeverQueried.Local
+    private readonly List<Edge> _edges = new();
+    private readonly List<Vertex> _vertices = new();
+
+    private readonly List<Vertex> _verticesInputs = new();
+    private readonly List<Vertex> _verticesOutputs = new();
+
+    public float Score = 0;
+
+    public void InscribeGenotype(Genotype code)
+    {
+        _vertices.Clear();
+        _edges.Clear();
+
+        int vertexCount = code.Vertices.Count;
+        int edgeCount = code.Edges.Count;
+
+        for (var i = 0; i < vertexCount; i++)
+            //cast to int then to other enumerator type
+            AddVertex((VertexType) (int) code.Vertices[i].Type, code.Vertices[i].Index);
+
+        for (var i = 0; i < edgeCount; i++)
+            AddEdge(code.Edges[i].Source, code.Edges[i].Destination, code.Edges[i].Weight, code.Edges[i].Enabled);
+    }
+
+    public void AddVertex(VertexType type, int index)
+    {
+        var v = new Vertex(type);
+        _vertices.Add(v);
+    }
+
+    public void AddEdge(int source, int destination, float weight, bool enabled)
+    {
+        var e = new Edge(source, destination, weight, enabled);
+        _edges.Add(e);
+
+        _vertices[e.Destination].Incoming.Add(e);
+    }
+
+    public void ProcessGraph()
+    {
+        int verticesCount = _vertices.Count;
+
+        //populate input and output sub-lists
+        for (var i = 0; i < verticesCount; i++)
         {
-            INPUT = 0,
-            HIDDEN = 1,
-            OUTPUT = 2,
-        }
+            Vertex vertex = _vertices[i];
 
-        public EType type;
-        public int index = 0;
-
-        //structual information
-        public List<Edge> incoming;
-
-        //output extraction
-        public float value = 0.0f;
-
-        public Vertex(EType t, int i)
-        {
-            type = t;
-            index = i;
-
-            incoming = new List<Edge>();
+            switch (vertex.Type)
+            {
+                case VertexType.Input:
+                    _verticesInputs.Add(vertex);
+                    break;
+                case VertexType.Output:
+                    _verticesOutputs.Add(vertex);
+                    break;
+                case VertexType.Hidden:
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException();
+            }
         }
     }
 
-    public class Edge
+    public void ResetGraph()
     {
-        public enum EType
+        int verticesCount = _vertices.Count;
+
+        for (var i = 0; i < verticesCount; i++)
         {
-            FORWARD,
-            RECURRENT,
-        }
-
-        //structual information
-        public EType type = EType.FORWARD;
-        public int source = 0;
-        public int destination = 0;
-
-        //network information
-        public float weight = 0.0f;
-        public bool enabled = true;
-
-        //propagation information
-        public float signal = 0.0f;
-
-        public Edge(int s, int d, float w, bool e)
-        {
-            source = s;
-            destination = d;
-
-            weight = w;
-            enabled = e;
+            Vertex vertex = _vertices[i];
+            vertex.Value = 0.0f;
         }
     }
 
-    public class Phenotype
+    public float[] Propagate(float[] X)
     {
-        public List<Vertex> vertices;
-        public List<Edge> edges;
+        const int repeats = 10;
 
-        public List<Vertex> vertices_inputs;
-        public List<Vertex> vertices_outputs;
-
-        public float score = 0;
-
-        public Phenotype()
+        for (var e = 0; e < repeats; e++)
         {
-            vertices = new List<Vertex>();
-            edges = new List<Edge>();
+            for (var i = 0; i < _verticesInputs.Count; i++)
+                _verticesInputs[i].Value = X[i];
 
-            vertices_inputs = new List<Vertex>();
-            vertices_outputs = new List<Vertex>();
-        }
-
-        public void InscribeGenotype(Genotype code)
-        {
-            vertices.Clear();
-            edges.Clear();
-
-            int vertexCount = code.vertices.Count;
-            int edgeCount = code.edges.Count;
-
-            for (int i = 0; i < vertexCount; i++)
+            foreach (Vertex t in _vertices)
             {
-                //cast to int then to other enumerator type
-                AddVertex((Vertex.EType)(int)code.vertices[i].type, code.vertices[i].index);
-            }
-            
-            for (int i = 0; i < edgeCount; i++)
-            {
-                AddEdge(code.edges[i].source, code.edges[i].destination, code.edges[i].weight, code.edges[i].enabled);
-            }
-        }
+                if (t.Type == VertexType.Output)
+                    continue;
 
-        public void AddVertex(Vertex.EType type, int index)
-        {
-            Vertex v = new Vertex(type, index);
-            vertices.Add(v);
-        }
+                int paths = t.Incoming.Count;
 
-        public void AddEdge(int source, int destination, float weight, bool enabled)
-        {
-            Edge e = new Edge(source, destination, weight, enabled);
-            edges.Add(e);
+                for (var j = 0; j < paths; j++)
+                    t.Value += _vertices[t.Incoming[j].Source].Value * t.Incoming[j].Weight * (t.Incoming[j].Enabled ? 1.0f : 0.0f);
 
-            vertices[e.destination].incoming.Add(e);
-        }
-
-        public void ProcessGraph()
-        {
-            int verticesCount = vertices.Count;
-
-            //populate input and output sub-lists
-            for (int i = 0; i < verticesCount; i++)
-            {
-                Vertex vertex = vertices[i];
-
-                if (vertex.type == Vertex.EType.INPUT)
-                {
-                    vertices_inputs.Add(vertex);
-                }
-                else if (vertex.type == Vertex.EType.OUTPUT)
-                {
-                    vertices_outputs.Add(vertex);
-                }
-            }
-        }
-
-        public void ResetGraph()
-        {
-            int verticesCount = vertices.Count;
-
-            for (int i = 0; i < verticesCount; i++)
-            {
-                Vertex vertex = vertices[i];
-                vertex.value = 0.0f;
-            }
-        }
-
-        public float[] Propagate(float[] X)
-        {
-            int repeats = 10;
-
-            for (int e = 0; e < repeats; e++)
-            {
-                for (int i = 0; i < vertices_inputs.Count; i++)
-                {
-                    vertices_inputs[i].value = X[i];
-                }
-
-                for (int i = 0; i < vertices.Count; i++)
-                {
-                    if (vertices[i].type == Vertex.EType.OUTPUT)
-                    {
-                        continue;
-                    }
-
-                    int paths = vertices[i].incoming.Count;
-
-                    for (int j = 0; j < paths; j++)
-                    {
-                        vertices[i].value += vertices[vertices[i].incoming[j].source].value * vertices[i].incoming[j].weight * (vertices[i].incoming[j].enabled ? 1.0f : 0.0f);
-                    }
-
-                    if (vertices[i].incoming.Count > 0)
-                    {
-                        vertices[i].value = Sigmoid(vertices[i].value);
-                    }
-                }
-
-                float[] Y = new float[vertices_outputs.Count];
-
-                for (int i = 0; i < vertices_outputs.Count; i++)
-                {
-                    int paths = vertices_outputs[i].incoming.Count;
-
-                    for (int j = 0; j < paths; j++)
-                    {
-                        vertices_outputs[i].value += vertices[vertices_outputs[i].incoming[j].source].value * vertices_outputs[i].incoming[j].weight * (vertices_outputs[i].incoming[j].enabled ? 1.0f : 0.0f);
-                    }
-
-                    if (vertices_outputs[i].incoming.Count > 0)
-                    {
-                        vertices_outputs[i].value = Sigmoid(vertices_outputs[i].value);
-                        Y[i] = vertices_outputs[i].value;
-                    }
-                }
-
-                if (e == repeats - 1)
-                {
-                    return Y;
-                }
+                if (t.Incoming.Count > 0)
+                    t.Value = Sigmoid(t.Value);
             }
 
-            return new float[0];
+            var y = new float[_verticesOutputs.Count];
+
+            for (var i = 0; i < _verticesOutputs.Count; i++)
+            {
+                int paths = _verticesOutputs[i].Incoming.Count;
+
+                for (var j = 0; j < paths; j++)
+                    _verticesOutputs[i].Value += _vertices[_verticesOutputs[i].Incoming[j].Source].Value * _verticesOutputs[i].Incoming[j].Weight *
+                                                 (_verticesOutputs[i].Incoming[j].Enabled ? 1.0f : 0.0f);
+
+                if (_verticesOutputs[i].Incoming.Count <= 0)
+                    continue;
+
+                _verticesOutputs[i].Value = Sigmoid(_verticesOutputs[i].Value);
+                y[i] = _verticesOutputs[i].Value;
+            }
+
+            if (e == repeats - 1)
+                return y;
         }
 
-        public float Sigmoid(float x)
-        {
-            return 1.0f / (1.0f + (float)Math.Pow(Math.E, -1.0f * x));
-        }
+        return Array.Empty<float>();
+    }
+
+    private static float Sigmoid(float x)
+    {
+        return 1.0f / (1.0f + (float) Math.Pow(Math.E, -1.0f * x));
     }
 }
